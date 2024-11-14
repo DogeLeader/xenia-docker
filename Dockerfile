@@ -11,6 +11,10 @@ RUN apt-get update && \
     build-essential \
     clang \
     cmake \
+    llvm \
+    lld \
+    llvm-dev \
+    clang-tools \
     xvfb \
     libgtk-3-dev \
     libpthread-stubs0-dev \
@@ -21,33 +25,33 @@ RUN apt-get update && \
     libsdl2-dev \
     libiberty-dev \
     libunwind-dev \
-    libc++-dev \
-    libc++abi-dev \
     python3 \
     python3-pip \
-    && pip3 install websockify \
+    python3-venv \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Clone the necessary repositories
-RUN git clone https://github.com/novnc/noVNC.git /noVNC && \
-    git clone https://github.com/novnc/websockify.git /websockify && \
-    git clone https://github.com/xenia-project/xenia.git /xenia
+RUN git clone --recurse-submodules https://github.com/novnc/noVNC.git /noVNC && \
+    git clone --recurse-submodules https://github.com/novnc/websockify.git /websockify && \
+    git clone --recurse-submodules https://github.com/xenia-project/xenia.git /xenia
 
 # Set working directory to xenia
 WORKDIR /xenia
 
-# Set up the project
-RUN ./xb setup
+# Run the setup command; will fail if not set up properly.
+RUN ./xb setup && ./xb pull
 
 # Run the build process
-RUN ./xb build  # Use --config=release if needed
-
-# Pull latest changes, rebase, and update submodules
-RUN ./xb pull
+RUN ./xb build --verbose || { echo "Build failed"; exit 1; }
 
 # Run premake to generate project files
-RUN ./xb premake
+RUN ./xb premake || { echo "Premake failed"; exit 1; }
+
+# Set up a Python virtual environment and install websockify
+RUN python3 -m venv /venv && \
+    /venv/bin/pip install --upgrade pip && \
+    /venv/bin/pip install websockify
 
 # Expose the noVNC port
 EXPOSE 8080
