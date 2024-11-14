@@ -25,6 +25,14 @@ RUN apt-get update && \
     libsdl2-dev \
     libiberty-dev \
     libunwind-dev \
+    libgoogle-glog-dev \   
+    libgflags-dev \
+    libboost-all-dev \      
+    libsqlite3-dev \         
+    libssl-dev \          
+    libjpeg-dev \          
+    libpng-dev \            
+    pkg-config \             
     python3 \
     python3-pip \
     python3-venv \
@@ -39,11 +47,17 @@ RUN git clone --recurse-submodules https://github.com/novnc/noVNC.git /noVNC && 
 # Set working directory to xenia
 WORKDIR /xenia
 
-# Run the setup command; will fail if not set up properly.
+# Ensure submodules are initialized
+RUN git submodule update --init --recursive
+
+# Run the setup command; will fail if not set up properly
 RUN ./xb setup && ./xb pull
 
-# Run the build process
-RUN ./xb build --verbose || { echo "Build failed"; exit 1; }
+# Adjust the following lines to ensure any previous builds are cleaned
+RUN ./xb clean
+
+# Build the project and log output
+RUN ./xb build > build_log.txt 2>&1 || { cat build_log.txt; echo "Build failed"; exit 1; }
 
 # Run premake to generate project files
 RUN ./xb premake || { echo "Premake failed"; exit 1; }
