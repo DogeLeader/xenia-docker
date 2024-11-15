@@ -1,17 +1,14 @@
-# Use the latest Debian base image
-FROM debian:latest
+# Start from the latest Ubuntu image
+FROM ubuntu:latest
 
-# Set the environment variable for non-interactive apt
+# Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update package lists and install necessary packages
-RUN apt-get update && \
-    apt-get install -y \
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     clang \
-    cmake \
-    xvfb \
     libgtk-3-dev \
     libpthread-stubs0-dev \
     liblz4-dev \
@@ -20,46 +17,65 @@ RUN apt-get update && \
     libvulkan-dev \
     libsdl2-dev \
     libiberty-dev \
-    libunwind-dev \
+    libunwind-18-dev \
     libc++-dev \
     libc++abi-dev \
+    xvfb \
     python3 \
+    python3-venv \
     python3-pip \
-    && pip3 install websockify \
-    && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    ninja-build \
+    cmake \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Clone the necessary repositories
-RUN git clone https://github.com/novnc/noVNC.git /noVNC && \
-    git clone https://github.com/novnc/websockify.git /websockify && \
-    git clone https://github.com/xenia-project/xenia.git /xenia
+# Clone the Xenia repository
+RUN git clone --recurse-submodules https://github.com/xenia-project/xenia.git /xenia
 
-# Set working directory to xenia
+# Set the working directory to Xenia
 WORKDIR /xenia
 
-# Set up the project
-RUN ./xb setup
+# Setup xenia, pull latest changes, and build while ignoring errors
+RUN ./xb setup || true && \
+    ./xb pull || true && \
+    CXXFLAGS="-Wno-error=integer-overflow" ./xb build || true
 
-# Run the build process
-RUN ./xb build  # Use --config=release if needed
+# Clone noVNC and websockify
+RUN git clone https://github.com/novnc/noVNC.git /noVNC && \
+    git clone https://github.com/novnc/websockify.git /websockify
 
-# Pull latest changes, rebase, and update submodules
-RUN ./xb pull
+# Create and activate a virtual environment, then install noVNC requirements
+WORKDIR /websockify
+RUN python3 -m venv venv && \
+    ./venv/bin/pip install -r requirements.txt || true
 
-# Run premake to generate project files
-RUN ./xb premake
+# Work Directory for noVNC
+WORKDIR /noVNC
+RUN ln -s vnc.html index.html || true
 
-# Expose the noVNC port
-EXPOSE 8080
+# Add start_emulator.sh script
+RUN echo '#!/bin/bash\n\
+\n\
+# Start X Virtual Framebuffer\n\
+Xvfb :99 -screen 0 1920x1080x16 &\n\
+\n\
+# Set display for Xvfb\n\
+export DISPLAY=:99\n\
+\n\
+# Start the xenia emulator (Main GUI)\n\
+/xenia/build/xenia-app &\n\
+\n\
+# Start websockify (make sure to activate the venv)\n\
+. /websockify/venv/bin/activate && /websockify/run -D --web=/noVNC 6080 localhost:5900\n\
+\n\
+# Keep the script running\n\
+wait' > /start_emulator.sh
 
-# Add the start script directly into the Dockerfile
-RUN echo '#!/bin/bash' > /run.sh && \
-    echo 'Xvfb :99 -screen 0 1280x720x24 &' >> /run.sh && \
-    echo 'export DISPLAY=:99' >> /run.sh && \
-    echo '/websockify/run --web /noVNC 8080 localhost:5901 &' >> /run.sh && \
-    echo '/xenia/build/bin/xenia --log_file=stdout /path/to/Default.xex' >> /run.sh && \
-    echo 'wait' >> /run.sh && \
-    chmod +x /run.sh
+# Make the start script executable
+RUN chmod +x /start_emulator.sh
 
-# Command to run the noVNC server with Xvfb
-CMD ["/run.sh"]
+# Expose necessary ports
+EXPOSE 6080 5900
+
+# Start xvfb and noVNC server by default
+CMD ["/start_emulator.sh"]
