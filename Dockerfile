@@ -35,10 +35,10 @@ RUN git clone --recurse-submodules https://github.com/xenia-project/xenia.git /x
 # Set the working directory to Xenia
 WORKDIR /xenia
 
-# Setup xenia
-RUN ./xb setup && \
-    ./xb pull && \
-    CXXFLAGS="-Wno-error=integer-overflow" ./xb build
+# Setup xenia, pull latest changes, and build while ignoring errors
+RUN ./xb setup || true && \
+    ./xb pull || true && \
+    CXXFLAGS="-Wno-error=integer-overflow" ./xb build || true
 
 # Clone noVNC and websockify
 RUN git clone https://github.com/novnc/noVNC.git /noVNC && \
@@ -47,12 +47,11 @@ RUN git clone https://github.com/novnc/noVNC.git /noVNC && \
 # Create and activate a virtual environment, then install noVNC requirements
 WORKDIR /websockify
 RUN python3 -m venv venv && \
-    ./venv/bin/pip install -r requirements.txt
+    ./venv/bin/pip install -r requirements.txt || true
 
-# You can also copy the requirements.txt to avoid needing to clone noVNC
 # Work Directory for noVNC
 WORKDIR /noVNC
-RUN ln -s vnc.html index.html
+RUN ln -s vnc.html index.html || true
 
 # Add start_emulator.sh script
 RUN echo '#!/bin/bash\n\
