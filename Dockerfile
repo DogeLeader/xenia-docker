@@ -1,21 +1,14 @@
-# Use the latest Debian base image
-FROM debian:latest
+# Start from the latest Ubuntu image
+FROM ubuntu:latest
 
-# Set the environment variable for non-interactive apt
+# Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update package lists and install necessary packages
-RUN apt-get update && \
-    apt-get install -y \
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     clang \
-    cmake \
-    llvm \
-    lld \
-    llvm-dev \
-    clang-tools \
-    xvfb \
     libgtk-3-dev \
     libpthread-stubs0-dev \
     liblz4-dev \
@@ -24,60 +17,70 @@ RUN apt-get update && \
     libvulkan-dev \
     libsdl2-dev \
     libiberty-dev \
-    libunwind-dev \
-    libgoogle-glog-dev \   
-    libgflags-dev \
-    libboost-all-dev \      
-    libsqlite3-dev \         
-    libssl-dev \          
-    libjpeg-dev \          
-    libpng-dev \            
-    pkg-config \             
+    libunwind-18-dev \
+    libc++-dev \
+    libc++abi-dev \
+    xvfb \
     python3 \
+    python3-venv \  
     python3-pip \
-    python3-venv \
-    && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    ninja-build \
+    cmake \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Clone the necessary repositories
-RUN git clone --recurse-submodules https://github.com/novnc/noVNC.git /noVNC && \
-    git clone --recurse-submodules https://github.com/novnc/websockify.git /websockify && \
-    git clone --recurse-submodules https://github.com/xenia-project/xenia.git /xenia
+# Clone the Xenia repository
+RUN git clone --recurse-submodules https://github.com/xenia-project/xenia.git /xenia
 
-# Set working directory to xenia
+# Set the working directory to Xenia
 WORKDIR /xenia
 
-# Ensure submodules are initialized
-RUN git submodule update --init --recursive
+# Setup xenia
+RUN ./xb setup
 
-# Run the setup command; will fail if not set up properly
-RUN ./xb setup && ./xb pull
+# Pull the latest changes, rebase, and update submodules
+RUN ./xb pull
 
-# Adjust the following lines to ensure any previous builds are cleaned
-RUN ./xb clean
+RUN ./xb build 
 
-# Build the project and log output
-RUN ./xb build > build_log.txt 2>&1 || { cat build_log.txt; echo "Build failed"; exit 1; }
+# Clone noVNC and websockify
+RUN git clone https://github.com/novnc/noVNC.git /noVNC \
+    && git clone https://github.com/novnc/websockify.git /websockify
 
-# Run premake to generate project files
-RUN ./xb premake || { echo "Premake failed"; exit 1; }
+# Create and activate a virtual environment, then install noVNC requirements
+WORKDIR /websockify
+RUN python3 -m venv venv && \
+    . venv/bin/activate && \
+    pip install -r requirements.txt
 
-# Set up a Python virtual environment and install websockify
-RUN python3 -m venv /venv && \
-    /venv/bin/pip install --upgrade pip && \
-    /venv/bin/pip install websockify
+# You can also copy the requirements.txt to avoid needing to clone noVNC
+# Work Directory for noVNC
+WORKDIR /noVNC
+RUN ln -s vnc.html index.html
 
-# Expose the noVNC port
-EXPOSE 8080
+# Add start_emulator.sh script
+RUN echo '#!/bin/bash\n\
+\n\
+# Start X Virtual Framebuffer\n\
+Xvfb :99 -screen 0 1920x1080x16 &\n\
+\n\
+# Set display for Xvfb\n\
+export DISPLAY=:99\n\
+\n\
+# Start the xenia emulator (Main GUI)\n\
+/xenia/build/xenia-app &\n\
+\n\
+# Start websockify (make sure to activate the venv)\n\
+. /websockify/venv/bin/activate && /websockify/run -D --web=/noVNC 6080 localhost:5900\n\
+\n\
+# Keep the script running\n\
+wait' > /start_emulator.sh
 
-# Add the start script directly into the Dockerfile
-RUN echo '#!/bin/bash' > /run.sh && \
-    echo 'Xvfb :99 -screen 0 1280x720x24 &' >> /run.sh && \
-    echo 'export DISPLAY=:99' >> /run.sh && \
-    echo '/websockify/run --web /noVNC 8080 localhost:5901 &' >> /run.sh && \
-    echo '/xenia/build/bin/xenia --log_file=stdout /path/to/Default.xex' >> /run.sh && \
-    echo 'wait' >> /run.sh && \
-    chmod +x /run.sh
+# Make the start script executable
+RUN chmod +x /start_emulator.sh
 
-# Command to run the noVNC server with Xvfb
-CMD ["/run.sh"]
+# Expose necessary ports
+EXPOSE 6080 5900
+
+# Start xvfb and noVNC server by default
+CMD ["/start_emulator.sh"]
