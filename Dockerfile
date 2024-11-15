@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y \
     libc++abi-dev \
     xvfb \
     python3 \
-    python3-venv \  
+    python3-venv \
     python3-pip \
     ninja-build \
     cmake \
@@ -36,22 +36,18 @@ RUN git clone --recurse-submodules https://github.com/xenia-project/xenia.git /x
 WORKDIR /xenia
 
 # Setup xenia
-RUN ./xb setup
-
-# Pull the latest changes, rebase, and update submodules
-RUN ./xb pull
-
-RUN ./xb build 
+RUN ./xb setup && \
+    ./xb pull && \
+    CXXFLAGS="-Wno-error=integer-overflow" ./xb build
 
 # Clone noVNC and websockify
-RUN git clone https://github.com/novnc/noVNC.git /noVNC \
-    && git clone https://github.com/novnc/websockify.git /websockify
+RUN git clone https://github.com/novnc/noVNC.git /noVNC && \
+    git clone https://github.com/novnc/websockify.git /websockify
 
 # Create and activate a virtual environment, then install noVNC requirements
 WORKDIR /websockify
 RUN python3 -m venv venv && \
-    . venv/bin/activate && \
-    pip install -r requirements.txt
+    ./venv/bin/pip install -r requirements.txt
 
 # You can also copy the requirements.txt to avoid needing to clone noVNC
 # Work Directory for noVNC
